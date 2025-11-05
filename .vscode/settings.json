@@ -1,0 +1,8 @@
+{
+    // readonly
+    "files.readonlyInclude": {
+        "**/*.ioc": true,
+        "**/mx.scratch": true,
+        "**/*.mxproject": true
+    }
+}

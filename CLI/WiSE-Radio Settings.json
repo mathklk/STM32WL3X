@@ -1,0 +1,78 @@
+[
+    {
+        "date": "Wed Nov  5 15:06:34 2025",
+        "name": "STM32CubeWiSE-RadioExplorer",
+        "version": "1.2.0"
+    },
+    {
+        "Data coding": {
+            "config": {
+                "bitorder": 0,
+                "coding": 0,
+                "coding_order": 0,
+                "whitening": 1
+            }
+        },
+        "Packet settings": {
+            "config": {
+                "crc_mode": 1,
+                "length_field_size": 1,
+                "payload_length": 18,
+                "postamble_length": 0,
+                "postamble_sequence": 0,
+                "preamble_length": 16,
+                "preamble_sequence": 0,
+                "sync_len": 32,
+                "sync_word": "88888888"
+            },
+            "packet_format": "Basic format"
+        },
+        "RSSI Test": {
+            "interval": 50
+        },
+        "Radio settings": {
+            "config": {
+                "buffer_size": 1024,
+                "channel_filter": 100000.0,
+                "datarate": 38400.0,
+                "f_dev": 20000.0,
+                "frequency": 433000000.0,
+                "modulation": 0,
+                "spread_factor": 0,
+                "tx_power": 0.0
+            }
+        },
+        "Rx Test": {
+            "packets_number": 0
+        },
+        "System settings": {
+            "config": {
+                "SMPS_config": "1400",
+                "tx_path": 2,
+                "xtal_frequency": 48000000,
+                "xtal_offset": 0
+            }
+        },
+        "Tx Test": {
+            "tx_panel": {
+                "0": "bytes",
+                "duration": "5.417",
+                "packets": 0,
+                "payload": "STMicroelectronics",
+                "payload_length": "18",
+                "tx_rate": 200
+            }
+        },
+        "Wakeup Radio settings": {
+            "config": {
+                "datarate": 16,
+                "payload_length": 7,
+                "sync_len": 0,
+                "sync_word": 153
+            }
+        },
+        "Wakeup Rx Test": {
+            "packets_number": 0
+        }
+    }
+]
