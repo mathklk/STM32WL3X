@@ -109,6 +109,9 @@ void HAL_MRSubG_MspInit(void)
       __HAL_RCC_MRSUBG_CLK_ENABLE();
     }
 
+    /* MRSUBG interrupt Init */
+    HAL_NVIC_SetPriority(MRSUBG_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(MRSUBG_IRQn);
     /* USER CODE BEGIN MRSubG_MspInit 1 */
 
     /* USER CODE END MRSubG_MspInit 1 */
@@ -131,6 +134,8 @@ void HAL_MRSubG_MspDeInit(void)
     __HAL_RCC_MRSUBG_FORCE_RESET();
     __HAL_RCC_MRSUBG_RELEASE_RESET();
 
+    /* MRSUBG interrupt DeInit */
+    HAL_NVIC_DisableIRQ(MRSUBG_IRQn);
     /* USER CODE BEGIN MRSubG_MspDeInit 1 */
 
     /* USER CODE END MRSubG_MspDeInit 1 */
@@ -138,57 +143,46 @@ void HAL_MRSubG_MspDeInit(void)
 }
 
 /**
-  * @brief RTC MSP Initialization
+  * @brief TIM_Base MSP Initialization
   * This function configures the hardware resources used in this example
-  * @param hrtc: RTC handle pointer
+  * @param htim_base: TIM_Base handle pointer
   * @retval None
   */
-void HAL_RTC_MspInit(RTC_HandleTypeDef* hrtc)
+void HAL_TIM_Base_MspInit(TIM_HandleTypeDef* htim_base)
 {
-  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
-  if(hrtc->Instance==RTC)
+  if(htim_base->Instance==TIM2)
   {
-    /* USER CODE BEGIN RTC_MspInit 0 */
+    /* USER CODE BEGIN TIM2_MspInit 0 */
 
-    /* USER CODE END RTC_MspInit 0 */
-
-  /** Initializes the peripherals clock
-  */
-    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC_WDG_SUBG_LPAWUR_LCD_LCSC;
-    PeriphClkInitStruct.RTCWDGSUBGLPAWURLCDLCSCClockSelection = RCC_RTC_WDG_SUBG_LPAWUR_LCD_LCSC_CLKSOURCE_LSE;
-    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
-    {
-      Error_Handler();
-    }
-
+    /* USER CODE END TIM2_MspInit 0 */
     /* Peripheral clock enable */
-    __HAL_RCC_RTC_CLK_ENABLE();
-    /* USER CODE BEGIN RTC_MspInit 1 */
+    __HAL_RCC_TIM2_CLK_ENABLE();
+    /* USER CODE BEGIN TIM2_MspInit 1 */
 
-    /* USER CODE END RTC_MspInit 1 */
+    /* USER CODE END TIM2_MspInit 1 */
 
   }
 
 }
 
 /**
-  * @brief RTC MSP De-Initialization
+  * @brief TIM_Base MSP De-Initialization
   * This function freeze the hardware resources used in this example
-  * @param hrtc: RTC handle pointer
+  * @param htim_base: TIM_Base handle pointer
   * @retval None
   */
-void HAL_RTC_MspDeInit(RTC_HandleTypeDef* hrtc)
+void HAL_TIM_Base_MspDeInit(TIM_HandleTypeDef* htim_base)
 {
-  if(hrtc->Instance==RTC)
+  if(htim_base->Instance==TIM2)
   {
-    /* USER CODE BEGIN RTC_MspDeInit 0 */
+    /* USER CODE BEGIN TIM2_MspDeInit 0 */
 
-    /* USER CODE END RTC_MspDeInit 0 */
+    /* USER CODE END TIM2_MspDeInit 0 */
     /* Peripheral clock disable */
-    __HAL_RCC_RTC_CLK_DISABLE();
-    /* USER CODE BEGIN RTC_MspDeInit 1 */
+    __HAL_RCC_TIM2_CLK_DISABLE();
+    /* USER CODE BEGIN TIM2_MspDeInit 1 */
 
-    /* USER CODE END RTC_MspDeInit 1 */
+    /* USER CODE END TIM2_MspDeInit 1 */
   }
 
 }

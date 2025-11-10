@@ -67,8 +67,11 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define PAYLOAD_LENGTH 32
 
 /* USER CODE BEGIN Private defines */
+
+void HAL_MRSubG_IRQ_Callback(void);
 
 /* USER CODE END Private defines */
 

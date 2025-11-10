@@ -23,6 +23,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include <my_stm32wl3x_hal.h>
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,12 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* RTC / UART print variables */
-RTC_TimeTypeDef sTime;
-RTC_DateTypeDef sDate;
-char rtcBuf[64];
-uint32_t lastRtcTick = 0;
-const uint32_t RTC_PRINT_INTERVAL = 3000; /* milliseconds */
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -50,9 +47,14 @@ const uint32_t RTC_PRINT_INTERVAL = 3000; /* milliseconds */
 SMRSubGConfig MRSUBG_RadioInitStruct;
 MRSubG_PcktBasicFields MRSUBG_PacketSettingsStruct;
 
-RTC_HandleTypeDef hrtc;
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
+
+typedef enum {
+	idle,
+	sampling
+} State;
 
 typedef union {
 	struct {
@@ -62,9 +64,52 @@ typedef union {
 	uint32_t w;
 } IQ;
 
-#define DB_SAMPLES 512
+#define DB_SAMPLES 2048
 __attribute__((aligned(4))) IQ databuffer0[DB_SAMPLES];
 __attribute__((aligned(4))) IQ databuffer1[DB_SAMPLES];
+IQ* databuffers[] = {databuffer0, databuffer1};
+
+typedef struct {
+	uint32_t ms;
+	uint16_t us;
+} Timestamp;
+
+static inline uint32_t getMs(void) {
+	return HAL_GetTick();
+}
+static inline uint16_t getUs(void) {
+	return __HAL_TIM_GET_COUNTER(&htim2);
+}
+static inline void sync(Timestamp* ts) {
+	ts->ms = getMs();
+	ts->us = getUs();
+}
+
+static inline void printBuffer(uint8_t n, bool partial) {
+	printf("DB%s = [\r\n  ", partial ? "B" : "A");
+	IQ const*const databuffer = databuffers[n];
+	for (int i = 0; i < DB_SAMPLES; ++i) {
+		printf("(%d,%d),", databuffer[i].IQ.I, databuffer[i].IQ.Q);
+	}
+	printf("\r\n] # Databuffer%d %ld/%d\r\n",
+		n,
+		(partial ? (HAL_MRSUBG_GET_DATABUFFER_COUNT()/sizeof(IQ)) : DB_SAMPLES),
+		DB_SAMPLES
+	);
+	if (partial) {
+		printf("n=%ld\r\n", (HAL_MRSUBG_GET_DATABUFFER_COUNT()/sizeof(IQ)));
+	}
+}
+
+static inline void printBuffers(void) {
+	if (HAL_MRSUBG_GET_CURRENT_DATABUFFER() == 1) {
+		printBuffer(0, false);
+		printBuffer(1, true);
+	} else {
+		printBuffer(1, false);
+		printBuffer(0, true);
+	}
+}
 
 /* USER CODE END PV */
 
@@ -73,7 +118,7 @@ void SystemClock_Config(void);
 void PeriphCommonClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_MRSUBG_Init(void);
-static void MX_RTC_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -91,7 +136,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  uint32_t irq;
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -116,14 +161,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_MRSUBG_Init();
-  MX_RTC_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   BSP_LED_Init(LD1);
   BSP_LED_Init(LD2);
   BSP_LED_Init(LD3);
+  HAL_TIM_Base_Start(&htim2);
 
   COM_InitTypeDef COM_Init;
-  COM_Init.BaudRate= 115200;
+  COM_Init.BaudRate= 1000000;
   COM_Init.HwFlowCtl = COM_HWCONTROL_NONE;
   COM_Init.WordLength = COM_WORDLENGTH_8B;
   COM_Init.Parity = COM_PARITY_NONE;
@@ -133,11 +179,19 @@ int main(void)
   printf("\r\n\n\n\nHello World!\r\n");
   printf("Compile time %s - %s\r\n", __DATE__, __TIME__);
 
-  /* Set RX Mode to Normal Mode*/
+  /* Set RX Mode to IQ Mode*/
   __HAL_MRSUBG_SET_RX_MODE(RX_IQ_SAMPLING);
 
+  // Enable interrupts for SYNC_VALID flag
+  /*
+  MRSubG_RFSEQ_IrqStatus_t enabledInterrupts;
+  enabledInterrupts.w = 0;
+  enabledInterrupts.bits.SYNC_VALID_F = 1;
+  __HAL_MRSUBG_SET_RFSEQ_IRQ_ENABLE(enabledInterrupts.w);
+  */
+
+
   /* Payload length config */
-  //HAL_MRSubG_PktBasicSetPayloadLength(MSG_SIZE);
   __HAL_MRSUBG_SET_DATABUFFER_SIZE(DB_SAMPLES * sizeof(IQ));
   __HAL_MRSUBG_SET_DATABUFFER0_POINTER((uint32_t)&databuffer0);
   __HAL_MRSUBG_SET_DATABUFFER1_POINTER((uint32_t)&databuffer1);
@@ -149,39 +203,114 @@ int main(void)
   printf("    Frequency Base = %ld MHz\r\n", MRSUBG_RadioInitStruct.lFrequencyBase / 1000000);
   printf("    Data rate      = %ld ksps\r\n", MRSUBG_RadioInitStruct.lDatarate / 1000);
   printf("    CHF Bandwidth  = %ld kHz (CHFLT_E = 0x%X)\r\n", MRSUBG_RadioInitStruct.lBandwidth / 1000, LL_MRSubG_GetChFlt_E());
+  printf("    Modulation     = %s\r\n", tr_ModSelect(MRSUBG_RadioInitStruct.xModulationSelect));
 
 
   printf("IQ sampling settings:\r\n");
   float const iqSamplingFrequency = MRSUBG_RadioInitStruct.lFrequencyBase / (8 * exp2(LL_MRSubG_GetChFlt_E()));
   printf("    Sampling frequency  = %f Msps\r\n", iqSamplingFrequency/1000000);
-  printf("    Data Buffer Size    = %ld samples (%ld bytes)\r\n", __HAL_MRSUBG_GET_DATABUFFER_SIZE()/sizeof(IQ), __HAL_MRSUBG_GET_DATABUFFER_SIZE());
-  printf("    Databuffer0 address = %ld\r\n", (uint32_t)(READ_REG(MR_SUBG_GLOB_STATIC->DATABUFFER0_PTR)));
-  printf("    Databuffer1 address = %ld\r\n", (uint32_t)(READ_REG(MR_SUBG_GLOB_STATIC->DATABUFFER1_PTR)));
-
+  printf("    Data Buffer Size    = %d samples/buffer * 32 bit/sample * 2 buffers = %d bytes total\r\n",
+		  DB_SAMPLES,
+		  (sizeof(databuffer0)+sizeof(databuffer1))
+  );
+  int const msgLengthBits =
+		  MRSUBG_PacketSettingsStruct.PreambleLength +
+		  ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0) +
+		  ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) ) +
+		  PAYLOAD_LENGTH +
+		  MRSUBG_PacketSettingsStruct.PostambleLength +
+		  crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
+  ;
+  printf("    Message length     = %d bits\r\n"
+		  "        Preamble  : %d\r\n"
+		  "        Sync      : %d\r\n"
+		  "        Len       : %d\r\n"
+		  "        Payload   : %d\r\n"
+		  "        Postamble : %d\r\n"
+		  "        CRC       : %d\r\n"
+		  , msgLengthBits
+		  , MRSUBG_PacketSettingsStruct.PreambleLength
+		  , ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0)
+		  , ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) )
+		  , PAYLOAD_LENGTH
+		  , MRSUBG_PacketSettingsStruct.PostambleLength
+		  , crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
+  );
+  int const msgLengthUs = (1000000*msgLengthBits) / MRSUBG_RadioInitStruct.lDatarate; // Abhängig von Modulation!
+  printf("    Estimated message time = %d µs\r\n", msgLengthUs);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  State state = idle;
+  uint32_t const blinkPeriodMs = 500;
+  uint32_t const rxLedPeriodMs = 100;
+  Timestamp rxTimestamp = {0, 0};
+
+  //MRSubGFSMState lastState = STATE_IDLE;
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 
-	printf("Current Databuffer: %ld\r\n", __HAL_MRSUBG_GET_CURRENT_DATABUFFER());
+	if (getMs() % blinkPeriodMs < blinkPeriodMs/2) {
+		BSP_LED_On(LD1);
+	} else {
+		BSP_LED_Off(LD1);
+	}
+	if (getMs() - rxLedPeriodMs < rxTimestamp.ms) {
+		BSP_LED_On(LD2);
+	} else {
+		BSP_LED_Off(LD2);
+	}
 
-	BSP_LED_On(LD1);
-    irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
+//	MRSubGFSMState currentState = LL_MRSubG_GetRadioFSMState();
+//	if (currentState != lastState) {
+//		printf("Current FSM state: %s\r\n", tr(currentState));
+//		lastState = currentState;
+//	}
 
-    // RX OK
+    uint32_t const irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
 
-    if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) {
-    	printf("Valid Sync!\r\n");
+    if (state == idle && irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) {
+    	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F );
+
+    	printf("Valid SYNC received\r\n");
+    	//printf("@ buffer %ld count %ld (%ld databuffers used)\r\n",  HAL_MRSUBG_GET_CURRENT_DATABUFFER(), HAL_MRSUBG_GET_DATABUFFER_COUNT(), HAL_MRSUBG_GET_NUMBER_OF_DATABUFFERS() );
+    	state = sampling;
+    	sync(&rxTimestamp);
     }
+
+    if (state == sampling && getUs() - msgLengthUs < rxTimestamp.us) {
+    	__HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
+    	printBuffers();
+    }
+
+    if (state == sampling && irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F) {
+		__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F );
+//		printf("SABORT done\r\n");
+//		printf("@ buffer %d count %ld\r\n",  __HAL_MRSUBG_GET_CURRENT_DATABUFFER(), __HAL_MRSUBG_GET_DATABUFFER_COUNT() );
+		state = idle;
+		__HAL_MRSUBG_STROBE_CMD(CMD_RX);
+	}
+//    if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F) {
+//       	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F );
+//       	printf("Databuffer0 is used\r\n");
+//    }
+//    if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F) {
+//       	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F );
+//       	printf("Databuffer1 is used\r\n");
+//    }
 
 
 
 	#if 0
+
+    // Kopie vom MRSUBG_BasicGeneric_Rx Beispiel
+
     if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_RX_OK_F ) {
       BSP_LED_On(LD2);
       /* Clear the IRQ flag */
@@ -217,7 +346,7 @@ int main(void)
       /* Restart RX */
       __HAL_MRSUBG_STROBE_CMD(CMD_RX);
     }
-	#endif
+
 
 
     /* Periodically read RTC and print to UART without blocking radio handling */
@@ -236,13 +365,9 @@ int main(void)
     //   lastRtcTick = HAL_GetTick();
     // }
 
-    HAL_Delay(250);
-    BSP_LED_Off(LD1);
-    BSP_LED_Off(LD2);
-    BSP_LED_Off(LD3);
-
     /* pause between receptions */
     HAL_Delay(250);
+    #endif
   }
   /* USER CODE END 3 */
 }
@@ -328,11 +453,11 @@ static void MX_MRSUBG_Init(void)
 
   /** Configures the packet parameters
   */
-  MRSUBG_PacketSettingsStruct.PreambleLength = 16;
+  MRSUBG_PacketSettingsStruct.PreambleLength = 32;
   MRSUBG_PacketSettingsStruct.PostambleLength = 0;
   MRSUBG_PacketSettingsStruct.SyncLength = 31;
   MRSUBG_PacketSettingsStruct.SyncWord = 0x88888888;
-  MRSUBG_PacketSettingsStruct.FixVarLength = VARIABLE;
+  MRSUBG_PacketSettingsStruct.FixVarLength = FIXED;
   MRSUBG_PacketSettingsStruct.PreambleSequence = PRE_SEQ_0101;
   MRSUBG_PacketSettingsStruct.PostambleSequence = POST_SEQ_0101;
   MRSUBG_PacketSettingsStruct.CrcMode = PKT_CRC_MODE_8BITS;
@@ -348,37 +473,47 @@ static void MX_MRSUBG_Init(void)
 }
 
 /**
-  * @brief RTC Initialization Function
+  * @brief TIM2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_RTC_Init(void)
+static void MX_TIM2_Init(void)
 {
 
-  /* USER CODE BEGIN RTC_Init 0 */
+  /* USER CODE BEGIN TIM2_Init 0 */
 
-  /* USER CODE END RTC_Init 0 */
+  /* USER CODE END TIM2_Init 0 */
 
-  /* USER CODE BEGIN RTC_Init 1 */
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
 
-  /* USER CODE END RTC_Init 1 */
+  /* USER CODE BEGIN TIM2_Init 1 */
 
-  /** Initialize RTC Only
-  */
-  hrtc.Instance = RTC;
-  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
-  hrtc.Init.AsynchPrediv = 127;
-  hrtc.Init.SynchPrediv = 255;
-  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
-  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
-  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 64-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 0xFFFF-1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN RTC_Init 2 */
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
 
-  /* USER CODE END RTC_Init 2 */
+  /* USER CODE END TIM2_Init 2 */
 
 }
 
@@ -404,6 +539,23 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 
+void HAL_MRSubG_IRQ_Callback(void)
+{
+  /*
+	// read status register and
+	irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
+
+	for (int i = 0; i < N_MRSUBG_INTERRUPTS; ++i) {
+		__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(enabledMrsubgInterrupts[i]);
+	}
+
+	//__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F);
+	if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) {
+		packetReceived = true;
+	}
+  */
+}
+
 /* USER CODE END 4 */
 
 /**
@@ -413,6 +565,7 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
+  printf("####ERROR#### (printed in main.c:Error_Handler()\r\n");
   /* User can add his own implementation to report the HAL error return state */
   while(1)
   {
