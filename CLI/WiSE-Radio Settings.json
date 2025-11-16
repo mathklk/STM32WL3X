@@ -1,6 +1,6 @@
 [
     {
-        "date": "Mon Nov 10 15:10:53 2025",
+        "date": "Thu Nov 13 19:04:44 2025",
         "name": "STM32CubeWiSE-RadioExplorer",
         "version": "1.2.0"
     },
@@ -37,7 +37,7 @@
                 "datarate": 38400.0,
                 "f_dev": 20000.0,
                 "frequency": 433000000.0,
-                "modulation": 0,
+                "modulation": 5,
                 "spread_factor": 0,
                 "tx_power": 0.0
             }
@@ -56,7 +56,7 @@
         "Tx Test": {
             "tx_panel": {
                 "0": "bytes",
-                "duration": "5.417",
+                "duration": "5.833",
                 "packets": 0,
                 "payload": "STMicroelectronics",
                 "payload_length": "18",

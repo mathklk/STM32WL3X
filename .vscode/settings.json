@@ -3,6 +3,7 @@
     "files.readonlyInclude": {
         "**/*.ioc": true,
         "**/mx.scratch": true,
-        "**/*.mxproject": true
+        "**/*.mxproject": true,
+        "logs/**": true
     }
 }
