@@ -136,14 +136,17 @@ enum Granularity {
 __attribute__((optimize("unroll-loops")))
 static inline
 void printBufferHex(uint8_t n, enum Granularity g) {
-	IQ* bufN = databuffers[n];
+
 
 	volatile uint8_t b;
+								#define OUT b=
 
-	#define OUT putchar
-//	#define OUT b=
+//	#define OUT putchar
+
+//#define OUT parallelOut
 
 	if (g == GRAN4) {
+		IQ* bufN = databuffers[n];
 		uint32_t w;
 		for (int i = 0; i < DB_SAMPLES; ++i) {
 			w = bufN[i].w;
@@ -151,6 +154,7 @@ void printBufferHex(uint8_t n, enum Granularity g) {
 			OUT( (uint8_t)((w >> 24) & 0xF0) | (w >> 12) );
 		}
 	} else if (g == GRAN8) {
+		IQ* bufN = databuffers[n];
 		IQ* c;
 		for (int i = 0; i < DB_SAMPLES; ++i) {
 			c = bufN + i;
@@ -160,14 +164,42 @@ void printBufferHex(uint8_t n, enum Granularity g) {
 			OUT( (uint8_t)c->b.b3 );
 		}
 	} else if (g == GRAN16) {
-		for (int i = 0; i < DB_SAMPLES; ++i) {
-//			c = bufN[i];
-//			(uint8_t)( w >> 24 )
-//			(uint8_t)( w >> 16 )
-//			(uint8_t)( (databuffers[n][i].IQ.I & 0xFF) )
-//			(uint8_t)( (databuffers[n][i].IQ.Q & 0xFF00) >> 8 )
-//			(uint8_t)( (databuffers[n][i].IQ.Q & 0xFF) )
+//		uint32_t w;
+//		for (int i = 0; i < DB_SAMPLES; ++i) {
+//			w = bufN[i].w;
+//			OUT( (uint8_t)( w >> 24 ) );
+//			OUT( (uint8_t)( w >> 16 ) );
+//			OUT( (uint8_t)( w >>  8 ) );
+//			OUT( (uint8_t)( w       ) );
+//		}
+
+		uint8_t* bufAsBytes = (uint8_t*)databuffers[n];
+		for (size_t i = 0; i < DB_SAMPLES * sizeof(IQ); ++i) {
+			OUT( bufAsBytes[i] );
 		}
+	}
+}
+
+#define NOP asm volatile ("nop");
+volatile uint8_t *const pb_b0 =  (uint8_t*)&GPIOB->ODR;
+volatile uint8_t *const pb_b1 = ((uint8_t*)&GPIOB->ODR )+ 1;
+
+__attribute__((optimize("unroll-loops")))
+static inline
+void parallelOut16(uint8_t n) {
+	uint8_t *buf = (uint8_t*)databuffers[n];
+	uint16_t count = DB_SAMPLES * sizeof(IQ);
+
+//	for (uint16_t i = 0; i < count; ++i) {
+//		*pb_b0 = bufAsU8[i];
+//		*pb_b1 = 0x01;
+//		*pb_b1 = 0x00;
+//	}
+	for (uint16_t i = 0; i < count; i += 4) {
+	    *pb_b0 = buf[i+0]; *pb_b1 = 1; *pb_b1 = 0;
+	    *pb_b0 = buf[i+1]; *pb_b1 = 1; *pb_b1 = 0;
+	    *pb_b0 = buf[i+2]; *pb_b1 = 1; *pb_b1 = 0;
+	    *pb_b0 = buf[i+3]; *pb_b1 = 1; *pb_b1 = 0;
 	}
 }
 
@@ -340,9 +372,10 @@ int main(void)
 
     	Timestamp const tBeforeDump = now();
     	uint8_t const currentBuffer = HAL_MRSUBG_GET_CURRENT_DATABUFFER();
-    	printf("[DB,2048,4=");
-    	printBufferHex(currentBuffer, GRAN4);
-    	printf("]\r\n");
+//    	printf("[DB,2048,4=");
+//    	printBufferHex(currentBuffer, GRAN16);
+//    	printf("]\r\n");
+    	parallelOut16(currentBuffer);
     	Timestamp const tAfterDump = now();
     	cycleDiffs[n] = (uint16_t)(tAfterDump.us - lastCycle.us);
     	dumpDiffs[n] = (uint16_t)(tAfterDump.us - tBeforeDump.us);
@@ -358,7 +391,7 @@ int main(void)
     		}
     		float const avgDumpSec  = dumpSum /(256*1000000);
     		float const avgCycleSec = cycleSum/(256*1000000);
-    		printf("\r\nCycle time %f us, dump took %f us, %f IQ/s\r\n", avgCycleSec*1000000 , avgDumpSec*1000000, DB_SAMPLES/avgDumpSec);
+    		printf("Cycle time %f us, dump took %f us, %f IQ/s\r\n", avgCycleSec*1000000 , avgDumpSec*1000000, DB_SAMPLES/avgDumpSec);
     	}
 
     }
@@ -474,7 +507,7 @@ static void MX_MRSUBG_Init(void)
   MRSUBG_RadioInitStruct.xModulationSelect = MOD_OOK;
   MRSUBG_RadioInitStruct.lDatarate = 38400;
   MRSUBG_RadioInitStruct.lFreqDev = 20000;
-  MRSUBG_RadioInitStruct.lBandwidth = 50000;
+  MRSUBG_RadioInitStruct.lBandwidth = 1600000;
   MRSUBG_RadioInitStruct.dsssExp = 0;
   MRSUBG_RadioInitStruct.outputPower = 14;
   MRSUBG_RadioInitStruct.PADrvMode = PA_DRV_TX_HP;
@@ -593,13 +626,40 @@ static void MX_TIM16_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6
+                          |GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_0|GPIO_PIN_1
+                          |GPIO_PIN_2, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PB3 PB4 PB5 PB6
+                           PB7 PB8 PB0 PB1
+                           PB2 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6
+                          |GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_0|GPIO_PIN_1
+                          |GPIO_PIN_2;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /**/
+  HAL_PWREx_DisableGPIOPullUp(PWR_GPIO_B, PWR_GPIO_BIT_3|PWR_GPIO_BIT_4|PWR_GPIO_BIT_5|PWR_GPIO_BIT_6
+                          |PWR_GPIO_BIT_7|PWR_GPIO_BIT_8|PWR_GPIO_BIT_0|PWR_GPIO_BIT_1
+                          |PWR_GPIO_BIT_2);
+
+  /**/
+  HAL_PWREx_DisableGPIOPullDown(PWR_GPIO_B, PWR_GPIO_BIT_3|PWR_GPIO_BIT_4|PWR_GPIO_BIT_5|PWR_GPIO_BIT_6
+                          |PWR_GPIO_BIT_7|PWR_GPIO_BIT_8|PWR_GPIO_BIT_0|PWR_GPIO_BIT_1
+                          |PWR_GPIO_BIT_2);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
