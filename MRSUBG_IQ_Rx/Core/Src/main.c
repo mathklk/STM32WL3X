@@ -52,132 +52,101 @@ TIM_HandleTypeDef htim16;
 
 /* USER CODE BEGIN PV */
 
+
+/* Timer */
+
+typedef struct {
+    uint32_t ms;
+    uint16_t us;
+} Timestamp;
+
+// In Millisekunden
+static inline uint32_t getMs(void) {
+    return HAL_GetTick();
+}
+// In Mikrosekunden
+static inline uint16_t getUs(void) {
+    return __HAL_TIM_GET_COUNTER(&htim2);
+}
+// In 1/64 µs
+static inline uint16_t get64ns(void) {
+    return __HAL_TIM_GET_COUNTER(&htim16);
+}
+static inline Timestamp now(void) {
+    Timestamp t = {getMs(), getUs()};
+    return t;
+}
+
+
+// MRSUBG
 typedef enum {
-	idle,
-	sampling,
-	aborting
+    idle,
+    starting,
+    sampling,
+    stopping
 } State;
 
 typedef union {
-	struct {
-		int16_t I;
-		int16_t Q;
-	} iq;
-	struct {
-		uint8_t b0;
-		uint8_t b1;
-		uint8_t b2;
-		uint8_t b3;
-	} b;
-	uint32_t w;
+    struct {
+        int16_t I;
+        int16_t Q;
+    } iq;
+    struct {
+        uint8_t b0;
+        uint8_t b1;
+        uint8_t b2;
+        uint8_t b3;
+    } b;
+    uint32_t w;
 } IQ;
 
-#define DB_SAMPLES 2048
-__attribute__((aligned(4))) IQ databuffer0[DB_SAMPLES];
-__attribute__((aligned(4))) IQ databuffer1[DB_SAMPLES];
+#define NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER 2048
+__attribute__((aligned(4))) IQ databuffer0[NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER];
+__attribute__((aligned(4))) IQ databuffer1[NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER];
 IQ* databuffers[] = {databuffer0, databuffer1};
-uint16_t getCurrentDatabufferSampleCount(void) {
-	return HAL_MRSUBG_GET_DATABUFFER_COUNT() / sizeof(IQ);
+
+uint16_t getNumberOfIQSamplesInCurrentDatabuffer(void) {
+    return HAL_MRSUBG_GET_DATABUFFER_COUNT() / sizeof(IQ);
 }
 
-
-typedef struct {
-	uint32_t ms;
-	uint16_t us;
-} Timestamp;
-
-static inline uint32_t getMs(void) {
-	return HAL_GetTick();
-}
-static inline uint16_t getUs(void) {
-	return __HAL_TIM_GET_COUNTER(&htim2);
-}
-static inline uint16_t get64ns(void) {
-	return __HAL_TIM_GET_COUNTER(&htim16);
-}
-static inline Timestamp now(void) {
-	Timestamp t = {getMs(), getUs()};
-	return t;
-}
-
-float iqFrequencyHz = 0;
-
-
-#if 0
-static inline void printBuffer(uint8_t n, char label) {
-	printf("DB%c = [\r\n  ", label);
-	for (int i = 0; i < DB_SAMPLES; ++i) {
-		printf("(%d,%d),", databuffers[n][i].IQ.I, databuffers[n][i].IQ.Q);
-	}
-	printf("\r\n]\r\n");
-}
-
-static inline void printBuffers(void) {
-	if (HAL_MRSUBG_GET_CURRENT_DATABUFFER() == 1) {
-		printBuffer(0, 'A');
-		printBuffer(1, 'B');
-	} else {
-		printBuffer(1, 'A');
-		printBuffer(0, 'B');
-	}
-	printf("iqf=%f\r\n", iqFrequencyHz);
-	printf("sync=(%d, %d)\r\n", syncBuffers, syncCount);
-	printf("finish=(%d, %d)\r\n", finishBuffers, finishCount);
-}
-#endif
 
 enum Granularity {
-	GRAN4 = 4,
-	GRAN8 = 8,
-	GRAN16 = 16
+    GRAN4 = 4,
+    GRAN8 = 8,
+    GRAN16 = 16
 };
 
 // [DBA,2048,4=....]
 __attribute__((optimize("unroll-loops")))
 static inline
 void printBufferHex(uint8_t n, enum Granularity g) {
+    #define OUT putchar
 
-
-	volatile uint8_t b;
-								#define OUT b=
-
-//	#define OUT putchar
-
-//#define OUT parallelOut
-
-	if (g == GRAN4) {
-		IQ* bufN = databuffers[n];
-		uint32_t w;
-		for (int i = 0; i < DB_SAMPLES; ++i) {
-			w = bufN[i].w;
-			// Oberste 4 bit von I + oberste 4 bit von Q in einem byte
-			OUT( (uint8_t)((w >> 24) & 0xF0) | (w >> 12) );
-		}
-	} else if (g == GRAN8) {
-		IQ* bufN = databuffers[n];
-		IQ* c;
-		for (int i = 0; i < DB_SAMPLES; ++i) {
-			c = bufN + i;
-			// Oberste 8 bit von I als 1 byte
-			OUT( (uint8_t)c->b.b0 );
-			// Oberste 8 bit von Q als 1 byte
-			OUT( (uint8_t)c->b.b3 );
-		}
-	} else if (g == GRAN16) {
-//		uint32_t w;
-//		for (int i = 0; i < DB_SAMPLES; ++i) {
-//			w = bufN[i].w;
-//			OUT( (uint8_t)( w >> 24 ) );
-//			OUT( (uint8_t)( w >> 16 ) );
-//			OUT( (uint8_t)( w >>  8 ) );
-//			OUT( (uint8_t)( w       ) );
-//		}
-
-		uint8_t* bufAsBytes = (uint8_t*)databuffers[n];
-		for (size_t i = 0; i < DB_SAMPLES * sizeof(IQ); ++i) {
-			OUT( bufAsBytes[i] );
-		}
-	}
+    if (g == GRAN4) {
+        IQ* bufN = databuffers[n];
+        uint32_t w;
+        for (int i = 0; i < NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER; ++i) {
+            w = bufN[i].w;
+            // Oberste 4 bit von I + oberste 4 bit von Q in einem byte
+            OUT( (uint8_t)((w >> 24) & 0xF0) | (w >> 12) );
+        }
+    } else if (g == GRAN8) {
+        IQ* bufN = databuffers[n];
+        IQ* c;
+        for (int i = 0; i < NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER; ++i) {
+            c = bufN + i;
+            // Oberste 8 bit von I als 1 byte
+            OUT( (uint8_t)c->b.b0 );
+            // Oberste 8 bit von Q als 1 byte
+            OUT( (uint8_t)c->b.b3 );
+        }
+    } else if (g == GRAN16) {
+        // Gesamten Buffer Byteweise
+        uint8_t* bufAsBytes = (uint8_t*)databuffers[n];
+        for (size_t i = 0; i < NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER * sizeof(IQ); ++i) {
+            OUT( bufAsBytes[i] );
+        }
+    }
 }
 
 #define NOP asm volatile ("nop");
@@ -187,20 +156,20 @@ volatile uint8_t *const pb_b1 = ((uint8_t*)&GPIOB->ODR )+ 1;
 __attribute__((optimize("unroll-loops")))
 static inline
 void parallelOut16(uint8_t n) {
-	uint8_t *buf = (uint8_t*)databuffers[n];
-	uint16_t count = DB_SAMPLES * sizeof(IQ);
+    uint8_t *buf = (uint8_t*)databuffers[n];
+    uint16_t count = NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER * sizeof(IQ);
 
 //	for (uint16_t i = 0; i < count; ++i) {
 //		*pb_b0 = bufAsU8[i];
 //		*pb_b1 = 0x01;
 //		*pb_b1 = 0x00;
 //	}
-	for (uint16_t i = 0; i < count; i += 4) {
-	    *pb_b0 = buf[i+0]; *pb_b1 = 1; *pb_b1 = 0;
-	    *pb_b0 = buf[i+1]; *pb_b1 = 1; *pb_b1 = 0;
-	    *pb_b0 = buf[i+2]; *pb_b1 = 1; *pb_b1 = 0;
-	    *pb_b0 = buf[i+3]; *pb_b1 = 1; *pb_b1 = 0;
-	}
+    for (uint16_t i = 0; i < count; i += 4) {
+        *pb_b0 = buf[i+0]; *pb_b1 = 1; *pb_b1 = 0;
+        *pb_b0 = buf[i+1]; *pb_b1 = 1; *pb_b1 = 0;
+        *pb_b0 = buf[i+2]; *pb_b1 = 1; *pb_b1 = 0;
+        *pb_b0 = buf[i+3]; *pb_b1 = 1; *pb_b1 = 0;
+    }
 }
 
 /* USER CODE END PV */
@@ -272,20 +241,15 @@ int main(void)
 
   printf("\r\n\n\n\nCompile time %s - %s\r\n", __DATE__, __TIME__);
 
+  // Overwrite the Channel Filter
+  //HAL_MRSUBG_SET_CHFLT_E(0);
+  //HAL_MRSUBG_SET_CHFLT_E(15);
+
   /* Set RX Mode to IQ Mode*/
   __HAL_MRSUBG_SET_RX_MODE(RX_IQ_SAMPLING);
 
-  // Enable interrupts for SYNC_VALID flag
-  /*
-  MRSubG_RFSEQ_IrqStatus_t enabledInterrupts;
-  enabledInterrupts.w = 0;
-  enabledInterrupts.bits.SYNC_VALID_F = 1;
-  __HAL_MRSUBG_SET_RFSEQ_IRQ_ENABLE(enabledInterrupts.w);
-  */
-
-
   /* Payload length config */
-  __HAL_MRSUBG_SET_DATABUFFER_SIZE(DB_SAMPLES * sizeof(IQ));
+  __HAL_MRSUBG_SET_DATABUFFER_SIZE(NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER * sizeof(IQ));
   __HAL_MRSUBG_SET_DATABUFFER0_POINTER((uint32_t)&databuffer0);
   __HAL_MRSUBG_SET_DATABUFFER1_POINTER((uint32_t)&databuffer1);
 
@@ -303,35 +267,36 @@ int main(void)
 //  float const iqSamplingFrequency = MRSUBG_RadioInitStruct.lFrequencyBase / (8 * exp2(LL_MRSubG_GetChFlt_E()));
   float const samplingFrequencyM = 64ul / (8 * exp2(LL_MRSubG_GetChFlt_E()));
   float const iqFrequencyM = samplingFrequencyM/sizeof(IQ);
-  iqFrequencyHz = iqFrequencyM * 1000000;
+  float const iqFrequencyHz = iqFrequencyM * 1000000;
+  float const speedOfLight = 300000000;
   printf("    Sampling frequency  = %f Msps (%f MIQ/s, 1IQ per %f µs)\r\n", samplingFrequencyM, iqFrequencyM, 1.0f/iqFrequencyM);
-  printf("    Data Buffer Size    = %d samples/buffer * 32 bit/sample * 2 buffers = %d bytes | %f µs per buffer\r\n",
-		  DB_SAMPLES,
-		  (sizeof(databuffer0)+sizeof(databuffer1)),
-		  1000000.0f*DB_SAMPLES/iqFrequencyHz
+  printf("    Data Buffer Size    = %d IQ samples per buffer | %f ms stored in total | %f meter\r\n",
+          NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER,
+          2*1000.0f*NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER/iqFrequencyHz,
+          2*speedOfLight/iqFrequencyHz
   );
   int const msgLengthBits =
-		  MRSUBG_PacketSettingsStruct.PreambleLength +
-		  ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0) +
-		  ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) ) +
-		  PAYLOAD_LENGTH +
-		  MRSUBG_PacketSettingsStruct.PostambleLength +
-		  crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
+          MRSUBG_PacketSettingsStruct.PreambleLength +
+          ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0) +
+          ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) ) +
+          PAYLOAD_LENGTH +
+          MRSUBG_PacketSettingsStruct.PostambleLength +
+          crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
   ;
   printf("    Message length     = %d bits\r\n"
-		  "        Preamble  : %d\r\n"
-		  "        Sync      : %d\r\n"
-		  "        Len       : %d\r\n"
-		  "        Payload   : %d\r\n"
-		  "        Postamble : %d\r\n"
-		  "        CRC       : %d\r\n"
-		  , msgLengthBits
-		  , MRSUBG_PacketSettingsStruct.PreambleLength
-		  , ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0)
-		  , ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) )
-		  , PAYLOAD_LENGTH
-		  , MRSUBG_PacketSettingsStruct.PostambleLength
-		  , crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
+          "        Preamble  : %d\r\n"
+          "        Sync      : %d\r\n"
+          "        Len       : %d\r\n"
+          "        Payload   : %d\r\n"
+          "        Postamble : %d\r\n"
+          "        CRC       : %d\r\n"
+          , msgLengthBits
+          , MRSUBG_PacketSettingsStruct.PreambleLength
+          , ( (MRSUBG_PacketSettingsStruct.SyncPresent == ENABLE) ? MRSUBG_PacketSettingsStruct.SyncLength : 0)
+          , ( (MRSUBG_PacketSettingsStruct.FixVarLength == FIXED) ? 0 : (8*(1+MRSUBG_PacketSettingsStruct.LengthWidth)) )
+          , PAYLOAD_LENGTH
+          , MRSUBG_PacketSettingsStruct.PostambleLength
+          , crcBits(MRSUBG_PacketSettingsStruct.CrcMode)
   );
   int const msgLengthUs = (1000000*msgLengthBits) / MRSUBG_RadioInitStruct.lDatarate; // Abhängig von Modulation!
   printf("    Estimated message time = %d µs\r\n", msgLengthUs);
@@ -341,13 +306,11 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-//  State state = idle;
+  State state = idle;
   uint32_t const blinkPeriodMs = 500;
 
-  Timestamp lastCycle = {0, 0};
-  uint8_t n = 0;
-  uint16_t dumpDiffs[256];
-  uint16_t cycleDiffs[256];
+  volatile BufferInfo atTwoBuffersDetected;
+  volatile BufferInfo atFullyAborted;
 
   while (1)
   {
@@ -355,81 +318,133 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	if (getMs() % blinkPeriodMs < blinkPeriodMs/2) {
-		BSP_LED_On(LD1);
-	} else {
-		BSP_LED_Off(LD1);
-	}
+    if (getMs() % blinkPeriodMs < blinkPeriodMs/2) {
+        BSP_LED_On(LD1);
+    } else {
+        BSP_LED_Off(LD1);
+    }
 
     uint32_t const irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
 
-    if (
-		( irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F ) ||
-		( irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F )
-	) {
-    	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F );
-    	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F );
-
-    	Timestamp const tBeforeDump = now();
-    	uint8_t const currentBuffer = HAL_MRSUBG_GET_CURRENT_DATABUFFER();
-//    	printf("[DB,2048,4=");
-//    	printBufferHex(currentBuffer, GRAN16);
-//    	printf("]\r\n");
-    	parallelOut16(currentBuffer);
-    	Timestamp const tAfterDump = now();
-    	cycleDiffs[n] = (uint16_t)(tAfterDump.us - lastCycle.us);
-    	dumpDiffs[n] = (uint16_t)(tAfterDump.us - tBeforeDump.us);
-    	++n;
-    	lastCycle = tAfterDump;
-
-    	if (n == 0) {
-    		float dumpSum = 0;
-    		float cycleSum = 0;
-    		for (uint16_t i = 0; i < 256; ++i) {
-    			dumpSum += dumpDiffs[i];
-    			cycleSum += cycleDiffs[i];
-    		}
-    		float const avgDumpSec  = dumpSum /(256*1000000);
-    		float const avgCycleSec = cycleSum/(256*1000000);
-    		printf("Cycle time %f us, dump took %f us, %f IQ/s\r\n", avgCycleSec*1000000 , avgDumpSec*1000000, DB_SAMPLES/avgDumpSec);
-    	}
-
+    if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_COMMAND_REJECTED_F) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_COMMAND_REJECTED_F);
+        printf("COMMAND_REJECTED\r\n");
+        continue;
     }
 
-	#if 0
-    if ( (state == idle) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) ) {
-    	__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F );
+    if ((state == idle) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) ) {
+      __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F );
+      __HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
+      BSP_LED_On(LD2);
+      state = starting;
+      continue;
+    }
+    if ( (state == starting) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F)) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F);
+        __HAL_MRSUBG_STROBE_CMD(CMD_RX);
+        state = sampling;
+        continue;
+    }
+    if ( (state == sampling) && HAL_MRSUBG_GET_BUFFER_INFO().numberOfBuffersUsed >= 2) {
+        atTwoBuffersDetected = HAL_MRSUBG_GET_BUFFER_INFO();
+        __HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
+        state = stopping;
+        continue;
+    }
+    if ( (state == stopping) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F)) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F);
+        atFullyAborted = HAL_MRSUBG_GET_BUFFER_INFO();
 
-    	state = sampling;
-    	syncTimestamp = now();
-    	syncCount = getCurrentDatabufferSampleCount();
-    	syncBuffers = HAL_MRSUBG_GET_NUMBER_OF_DATABUFFERS();
-    	printf("SYNC %ld ms | %d us\r\n", syncTimestamp.ms,syncTimestamp.us);
+        printf("@TwoBuffersDetected: #%d  Nr. %ld  +%ld\r\n", atTwoBuffersDetected.buffer, atTwoBuffersDetected.numberOfBuffersUsed, atTwoBuffersDetected.iqSampleCount);
+        printf("@FullyAborted:       #%d  Nr. %ld  +%ld\r\n", atFullyAborted.buffer, atFullyAborted.numberOfBuffersUsed, atFullyAborted.iqSampleCount);
+
+        enum Granularity const gran = GRAN16;
+        bool const currentBuffer = !HAL_MRSUBG_GET_CURRENT_DATABUFFER(); // Negieren, weil zum Zeitpunkt des stoppens schon der nächste Buffer angefangen ist
+        printf("[DB,%d,%d=", NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER, gran);
+        printBufferHex( !currentBuffer, gran);
+        printf("]\r\n");
+        printf("[DB,%d,%d=", NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER, gran);
+        printBufferHex(currentBuffer, gran);
+        printf("]\r\n");
+
+        state = idle;
+        __HAL_MRSUBG_STROBE_CMD(CMD_RX);
+        BSP_LED_Off(LD2);
+        continue;
+    }
+
+
+#if 0
+    if ( state == sample && (
+        ( irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F ) ||
+        ( irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F )
+    )) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER0_USED_F );
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_DATABUFFER1_USED_F );
+        ++numberOfDatabuffersReceived;
+
+        if (numberOfDatabuffersReceived == 2) {
+//    		__HAL_MRSUBG_SET_DATABUFFER_SIZE(0);
+            __HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
+//    		state = output;
+        }
+    }
+
+    if (false && irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F);
+
+        enum Granularity const gran = GRAN16;
+
+        // Negieren, weil der "current buffer" schon inkrementiert ist, die aktuellsten Daten aber im letzten sind. Die ersten ~20 µs könnten schon überschrieben sein
+        bool const currentBuffer = !HAL_MRSUBG_GET_CURRENT_DATABUFFER();
+        printf("[DB,%d,%d=", NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER, gran);
+        printBufferHex( !currentBuffer, gran);
+        printf("]\r\n");
+        printf("[DB,%d,%d=", NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER, gran);
+        printBufferHex(currentBuffer, gran);
+        printf("]\r\n");
+
+        state = idle;
+        __HAL_MRSUBG_SET_DATABUFFER_SIZE(NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER * sizeof(IQ));
+        __HAL_MRSUBG_STROBE_CMD(CMD_RX);
+    }
+
+    //-----
+
+
+    if ( (state == idle) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) ) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F );
+
+        state = sampling;
+        syncTimestamp = now();
+        syncCount = getCurrentDatabufferSampleCount();
+        syncBuffers = HAL_MRSUBG_GET_NUMBER_OF_DATABUFFERS();
+        printf("SYNC %ld ms | %d us\r\n", syncTimestamp.ms,syncTimestamp.us);
     }
 
     if ( (state == sampling) && (getUs() - msgLengthUs*2 > syncTimestamp.us) ) {
-    	finishTimestamp = now();
-		finishCount = getCurrentDatabufferSampleCount();
-		finishBuffers = HAL_MRSUBG_GET_NUMBER_OF_DATABUFFERS();
+        finishTimestamp = now();
+        finishCount = getCurrentDatabufferSampleCount();
+        finishBuffers = HAL_MRSUBG_GET_NUMBER_OF_DATABUFFERS();
 
-		uint32_t diffBuffers = finishBuffers - syncBuffers;
-		uint32_t diffMs = finishTimestamp.ms - syncTimestamp.ms;
-		uint16_t diffUs = finishTimestamp.us - syncTimestamp.us;
-		printf("Produced %d buffers in %d ms | %d us\r\n", diffBuffers, diffMs, diffUs);
+        uint32_t diffBuffers = finishBuffers - syncBuffers;
+        uint32_t diffMs = finishTimestamp.ms - syncTimestamp.ms;
+        uint16_t diffUs = finishTimestamp.us - syncTimestamp.us;
+        printf("Produced %d buffers in %d ms | %d us\r\n", diffBuffers, diffMs, diffUs);
 
-    	__HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
-    	state = aborting;
+        __HAL_MRSUBG_STROBE_CMD(CMD_SABORT);
+        state = aborting;
     }
 
     if ( (state == aborting) && (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F) ) {
-		__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F );
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG( MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SABORT_DONE_F );
 
-    	//printBuffersHex(GRAN16);
+        //printBuffersHex(GRAN16);
 
-		state = idle;
-		__HAL_MRSUBG_STROBE_CMD(CMD_RX);
-	}
-	#endif
+        state = idle;
+        __HAL_MRSUBG_STROBE_CMD(CMD_RX);
+    }
+    #endif
   }
   /* USER CODE END 3 */
 }
@@ -507,7 +522,7 @@ static void MX_MRSUBG_Init(void)
   MRSUBG_RadioInitStruct.xModulationSelect = MOD_OOK;
   MRSUBG_RadioInitStruct.lDatarate = 38400;
   MRSUBG_RadioInitStruct.lFreqDev = 20000;
-  MRSUBG_RadioInitStruct.lBandwidth = 1600000;
+  MRSUBG_RadioInitStruct.lBandwidth = 888000;
   MRSUBG_RadioInitStruct.dsssExp = 0;
   MRSUBG_RadioInitStruct.outputPower = 14;
   MRSUBG_RadioInitStruct.PADrvMode = PA_DRV_TX_HP;
@@ -670,19 +685,19 @@ static void MX_GPIO_Init(void)
 
 void HAL_MRSubG_IRQ_Callback(void)
 {
-  /*
-	// read status register and
-	irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
+    /*
+    // read status register and
+    irq = __HAL_MRSUBG_GET_RFSEQ_IRQ_STATUS();
 
-	for (int i = 0; i < N_MRSUBG_INTERRUPTS; ++i) {
-		__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(enabledMrsubgInterrupts[i]);
-	}
+    for (int i = 0; i < N_MRSUBG_INTERRUPTS; ++i) {
+        __HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(enabledMrsubgInterrupts[i]);
+    }
 
-	//__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F);
-	if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) {
-		packetReceived = true;
-	}
-  */
+    //__HAL_MRSUBG_CLEAR_RFSEQ_IRQ_FLAG(MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F);
+    if (irq & MR_SUBG_GLOB_STATUS_RFSEQ_IRQ_STATUS_SYNC_VALID_F) {
+        packetReceived = true;
+    }
+    */
 }
 
 /* USER CODE END 4 */
