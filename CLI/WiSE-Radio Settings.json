@@ -1,6 +1,6 @@
 [
     {
-        "date": "Thu Nov 13 19:04:44 2025",
+        "date": "Thu Nov 20 18:39:42 2025",
         "name": "STM32CubeWiSE-RadioExplorer",
         "version": "1.2.0"
     },
@@ -10,15 +10,15 @@
                 "bitorder": 0,
                 "coding": 0,
                 "coding_order": 0,
-                "whitening": 1
+                "whitening": 0
             }
         },
         "Packet settings": {
             "config": {
-                "crc_mode": 1,
-                "length_field_size": 1,
-                "payload_length": 18,
-                "postamble_length": 0,
+                "crc_mode": 0,
+                "length_field_size": 0,
+                "payload_length": 0,
+                "postamble_length": 32,
                 "postamble_sequence": 0,
                 "preamble_length": 32,
                 "preamble_sequence": 0,
@@ -37,7 +37,7 @@
                 "datarate": 38400.0,
                 "f_dev": 20000.0,
                 "frequency": 433000000.0,
-                "modulation": 5,
+                "modulation": 4,
                 "spread_factor": 0,
                 "tx_power": 0.0
             }
@@ -56,11 +56,11 @@
         "Tx Test": {
             "tx_panel": {
                 "0": "bytes",
-                "duration": "5.833",
+                "duration": "2.500",
                 "packets": 0,
-                "payload": "STMicroelectronics",
-                "payload_length": "18",
-                "tx_rate": 200
+                "payload": "",
+                "payload_length": "0",
+                "tx_rate": 2000
             }
         },
         "Wakeup Radio settings": {

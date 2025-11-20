@@ -100,7 +100,7 @@ typedef union {
     uint32_t w;
 } IQ;
 
-#define NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER 2048
+#define NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER 3500
 __attribute__((aligned(4))) IQ databuffer0[NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER];
 __attribute__((aligned(4))) IQ databuffer1[NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER];
 IQ* databuffers[] = {databuffer0, databuffer1};
@@ -242,8 +242,8 @@ int main(void)
   printf("\r\n\n\n\nCompile time %s - %s\r\n", __DATE__, __TIME__);
 
   // Overwrite the Channel Filter
-  //HAL_MRSUBG_SET_CHFLT_E(0);
-  //HAL_MRSUBG_SET_CHFLT_E(15);
+//  HAL_MRSUBG_SET_CHFLT_E(0);
+  HAL_MRSUBG_SET_CHFLT_M(15);
 
   /* Set RX Mode to IQ Mode*/
   __HAL_MRSUBG_SET_RX_MODE(RX_IQ_SAMPLING);
@@ -366,6 +366,7 @@ int main(void)
         printf("[DB,%d,%d=", NUMBER_OF_IQ_SAMPLES_IN_DATABUFFER, gran);
         printBufferHex(currentBuffer, gran);
         printf("]\r\n");
+        printf("TRANSMISSION_COMPLETE\r\n");
 
         state = idle;
         __HAL_MRSUBG_STROBE_CMD(CMD_RX);
@@ -519,7 +520,7 @@ static void MX_MRSUBG_Init(void)
   /** Configures the radio parameters
   */
   MRSUBG_RadioInitStruct.lFrequencyBase = 433000000;
-  MRSUBG_RadioInitStruct.xModulationSelect = MOD_OOK;
+  MRSUBG_RadioInitStruct.xModulationSelect = MOD_ASK;
   MRSUBG_RadioInitStruct.lDatarate = 38400;
   MRSUBG_RadioInitStruct.lFreqDev = 20000;
   MRSUBG_RadioInitStruct.lBandwidth = 888000;
